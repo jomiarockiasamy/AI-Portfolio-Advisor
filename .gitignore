@@ -1,9 +1,29 @@
+# Secrets and local config
 .env
-.streamlit/secrets.toml
+.env.*
+!.env.example
+.streamlit/
 conf/
+credentials.json
+*.pem
+*.key
+
+# Runtime / personal data
 *.log
 *.db
+webull_*.log
+
+# Python / tooling
 .venv/
 __pycache__/
 *.pyc
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# OS / IDE
 .DS_Store
+.idea/
+.vscode/
