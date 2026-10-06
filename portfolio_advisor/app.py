@@ -713,20 +713,15 @@ def _render_analyze_mode() -> None:
 
     st.header("Analyze My Portfolio")
 
+    holdings_options = ["Enter manually"]
+    if webull_configured():
+        holdings_options.append("Connect Webull account")
     holdings_source = st.radio(
         "Holdings source",
-        ["Enter manually", "Connect Webull account"],
+        holdings_options,
         horizontal=True,
     )
     use_webull = holdings_source == "Connect Webull account"
-
-    if use_webull and not webull_configured():
-        st.info(
-            "Webull API credentials are not configured. Add `WEBULL_APP_KEY` and "
-            "`WEBULL_APP_SECRET` to `.env` or Streamlit secrets. "
-            "Apply at [developer.webull.com](https://developer.webull.com). "
-            "Switch to manual entry to analyze without Webull."
-        )
 
     default_holdings = pd.DataFrame(
         {"ticker": ["AAPL", "MSFT"], "shares": [10.0, 5.0]}
@@ -766,10 +761,6 @@ def _render_analyze_mode() -> None:
         refresh_webull = st.button("Refresh from Webull")
 
     if not (analyze_clicked or refresh_webull):
-        return
-
-    if use_webull and not webull_configured():
-        st.warning("Configure Webull credentials or switch to manual entry.")
         return
 
     if not _check_rate_limit("analyze"):
