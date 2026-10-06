@@ -62,6 +62,12 @@ def init_db() -> None:
                 updated_at TEXT NOT NULL
             );
 
+            CREATE TABLE IF NOT EXISTS news_sentiment_cache (
+                ticker TEXT PRIMARY KEY,
+                data TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            );
+
             CREATE TABLE IF NOT EXISTS user_holdings_snapshots (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 created_at TEXT NOT NULL,
@@ -77,6 +83,34 @@ def init_db() -> None:
                 ON rate_limit_log(identifier, timestamp);
             """
         )
+
+
+def clear_rate_limit_log(action: str = "all", session_id: str | None = None) -> int:
+    """Delete rate_limit_log rows. Returns number of rows deleted."""
+    init_db()
+    with _connect() as conn:
+        if session_id:
+            if action == "all":
+                pattern = f"%{session_id}%"
+                cursor = conn.execute(
+                    "DELETE FROM rate_limit_log WHERE identifier LIKE ?",
+                    (pattern,),
+                )
+            else:
+                pattern = f"%{session_id}:{action}"
+                cursor = conn.execute(
+                    "DELETE FROM rate_limit_log WHERE identifier LIKE ?",
+                    (pattern,),
+                )
+        elif action == "all":
+            cursor = conn.execute("DELETE FROM rate_limit_log")
+        else:
+            cursor = conn.execute(
+                "DELETE FROM rate_limit_log WHERE identifier LIKE ?",
+                (f"%:{action}",),
+            )
+        conn.commit()
+        return int(cursor.rowcount)
 
 
 def check_and_record_rate_limit(identifier: str, max_per_hour: int = 5) -> bool:
@@ -221,8 +255,11 @@ def get_portfolio_detail(portfolio_id: int) -> Dict[str, Any]:
     return detail
 
 
+THESIS_CACHE_SCHEMA_VERSION = 2
+
+
 def get_cached_thesis(ticker: str, ttl_days: int = 7) -> Optional[Dict[str, Any]]:
-    """Return cached thesis if present and within TTL, else None."""
+    """Return cached thesis if present, within TTL, and schema v2."""
     init_db()
     with _connect() as conn:
         row = conn.execute(
@@ -240,12 +277,17 @@ def get_cached_thesis(ticker: str, ttl_days: int = 7) -> Optional[Dict[str, Any]
     if datetime.now(timezone.utc) - updated_at > timedelta(days=ttl_days):
         return None
 
-    return json.loads(row["data"])
+    data = json.loads(row["data"])
+    if data.get("schema_version") != THESIS_CACHE_SCHEMA_VERSION:
+        return None
+    return data
 
 
 def save_thesis_cache(ticker: str, thesis: Dict[str, Any]) -> None:
     """Upsert a thesis into the cache."""
     init_db()
+    payload = dict(thesis)
+    payload["schema_version"] = THESIS_CACHE_SCHEMA_VERSION
     with _connect() as conn:
         conn.execute(
             """
@@ -255,7 +297,46 @@ def save_thesis_cache(ticker: str, thesis: Dict[str, Any]) -> None:
                 data = excluded.data,
                 updated_at = excluded.updated_at
             """,
-            (ticker.upper(), json.dumps(thesis), _utcnow_iso()),
+            (ticker.upper(), json.dumps(payload), _utcnow_iso()),
+        )
+        conn.commit()
+
+
+def get_cached_news_sentiment(ticker: str, ttl_days: int = 7) -> Optional[Dict[str, Any]]:
+    """Return cached news sentiment if present and within TTL."""
+    init_db()
+    with _connect() as conn:
+        row = conn.execute(
+            "SELECT data, updated_at FROM news_sentiment_cache WHERE ticker = ?",
+            (ticker.upper(),),
+        ).fetchone()
+
+    if row is None:
+        return None
+
+    updated_at = datetime.fromisoformat(row["updated_at"])
+    if updated_at.tzinfo is None:
+        updated_at = updated_at.replace(tzinfo=timezone.utc)
+
+    if datetime.now(timezone.utc) - updated_at > timedelta(days=ttl_days):
+        return None
+
+    return json.loads(row["data"])
+
+
+def save_news_sentiment_cache(ticker: str, sentiment: Dict[str, Any]) -> None:
+    """Upsert news sentiment into the cache."""
+    init_db()
+    with _connect() as conn:
+        conn.execute(
+            """
+            INSERT INTO news_sentiment_cache (ticker, data, updated_at)
+            VALUES (?, ?, ?)
+            ON CONFLICT(ticker) DO UPDATE SET
+                data = excluded.data,
+                updated_at = excluded.updated_at
+            """,
+            (ticker.upper(), json.dumps(sentiment), _utcnow_iso()),
         )
         conn.commit()
 
@@ -336,12 +417,15 @@ if __name__ == "__main__":
             "growth_drivers": "AI",
             "key_risks": "Competition",
             "thesis_summary": "Test",
-            "conviction": "medium",
+            "cited_inputs": ["trailing P/E 28"],
+            "signal_reasoning": "Based on cited P/E",
+            "no_news_note": "",
         }
         save_thesis_cache("AAPL", thesis)
         cached = get_cached_thesis("AAPL")
         assert cached is not None
         assert cached["moat"] == "Ecosystem"
+        assert cached.get("schema_version") == THESIS_CACHE_SCHEMA_VERSION
 
         with _connect() as conn:
             old_time = (datetime.now(timezone.utc) - timedelta(days=10)).isoformat()
@@ -352,10 +436,13 @@ if __name__ == "__main__":
             conn.commit()
         assert get_cached_thesis("AAPL") is None
 
-        ident = "test-user-123"
+        ident = "test-user-123:build"
         results = [check_and_record_rate_limit(ident, max_per_hour=5) for _ in range(6)]
         assert results[:5] == [True] * 5
         assert results[5] is False
+
+        deleted = clear_rate_limit_log(action="build", session_id="test-user-123")
+        assert deleted >= 5
 
         print("db checkpoint passed")
     finally:

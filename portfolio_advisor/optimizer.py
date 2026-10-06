@@ -8,11 +8,16 @@ import numpy as np
 import pandas as pd
 from scipy.optimize import minimize
 
+from portfolio_advisor.formatters import snap_weights_dict
+
 # Historical sample means are noisy expected-return inputs.
 # Black-Litterman (or similar shrinkage estimators) would be a future upgrade.
 
 MIN_RETURN_ROWS = 30
-INSUFFICIENT_HISTORY_WARNING = "Insufficient price history — using equal weights."
+INSUFFICIENT_HISTORY_WARNING = (
+    "Insufficient price history — using equal weights. "
+    "Risk tolerance has no effect on allocation this run."
+)
 
 RISK_PARAMS: dict[str, dict[str, float]] = {
     "conservative": {"max_weight": 0.15, "risk_aversion": 5.0},
@@ -47,7 +52,7 @@ def optimize_portfolio(
     n = len(tickers)
 
     if len(returns_df) < MIN_RETURN_ROWS:
-        return _equal_weights(tickers), INSUFFICIENT_HISTORY_WARNING
+        return snap_weights_dict(_equal_weights(tickers)), INSUFFICIENT_HISTORY_WARNING
 
     if n == 1:
         return {tickers[0]: 1.0}, None
@@ -82,7 +87,8 @@ def optimize_portfolio(
     if abs(weights.sum() - 1.0) > 1e-6 and weights.sum() > 0:
         weights = weights / weights.sum()
 
-    return {ticker: float(weight) for ticker, weight in zip(tickers, weights)}, None
+    raw = {ticker: float(weight) for ticker, weight in zip(tickers, weights)}
+    return snap_weights_dict(raw), None
 
 
 def portfolio_stats(weights: Dict[str, float], returns_df: pd.DataFrame) -> Dict[str, float]:
