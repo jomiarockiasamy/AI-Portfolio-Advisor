@@ -6,8 +6,6 @@ Python + Streamlit app for screening large-cap stocks, mean–variance optimizat
 
 ![Analyze My Portfolio — signals and rebalance](docs/screenshot.png)
 
-> **Screenshot:** Replace `docs/screenshot.png` with a capture of **Analyze My Portfolio** (signals + rebalance table). Until then, the image above may 404 on GitHub.
-
 ## Features
 
 - **Build New Portfolio** — screen a large-cap universe, optimize weights, save to SQLite locally
@@ -21,24 +19,25 @@ Python + Streamlit app for screening large-cap stocks, mean–variance optimizat
 
 **Stack:** Python, SciPy, Groq and Anthropic APIs, Streamlit, yfinance, Plotly.
 
-## Privacy before you push
+## How it works
 
-Never commit `.env`, `conf/` (Webull tokens), `*.log`, or `*.db`. They are in `.gitignore`.
-
-Before `git push`, run:
-
-```bash
-./scripts/check-safe-to-push.sh   # after git add, checks the index
-git config core.hooksPath .githooks   # optional: auto-run the same check on every commit
+```mermaid
+flowchart LR
+  H[Holdings or screened universe] --> D[yfinance prices + fundamentals]
+  D --> S[Signal engine: valuation, growth, analyst, news, momentum]
+  D --> O[SciPy SLSQP optimizer]
+  S --> R[Rebalance: math-only or signal-aligned]
+  O --> R
+  S --> T[LLM thesis grounded in cited data]
+  R --> UI[Streamlit tables + Methodology page]
+  T --> UI
 ```
-
-Public Streamlit deploy: use **Groq/Finnhub** secrets only — not Webull keys.
 
 ## Quick start
 
 ```bash
-git clone <your-repo-url>
-cd Stocks
+git clone https://github.com/jomiarockiasamy/AI-Portfolio-Advisor.git
+cd AI-Portfolio-Advisor
 python3 -m venv .venv
 source .venv/bin/activate
 pip install -r portfolio_advisor/requirements.txt
@@ -77,7 +76,7 @@ Optional: `ANTHROPIC_API_KEY`, `LLM_PROVIDER`, `FINNHUB_API_KEY`.
 
 - **Educational / research only — not financial advice.** No trade execution; no brokerage relationship.
 - **Expected returns** come from historical means — noisy; thin history falls back to equal weights with a warning.
-- **Thesis signals and Math-only rebalance can disagree.** Signals score fundamentals, momentum, and valuation; the optimizer minimizes variance for a target return. Use **Signal-aligned** rebalance when you want targets tilted toward signals, or read both side by side.
+- **Thesis signals and Math-only rebalance can disagree.** Signals score fundamentals, news, analyst views, and momentum. The optimizer maximizes expected return minus a risk-aversion penalty on variance, using two years of price history. Use Signal-aligned rebalance to tilt targets toward the signals, or read both side by side.
 - **Streamlit Cloud** uses ephemeral disk — saved portfolios and thesis cache reset on cold start (documented in [`portfolio_advisor/README.md`](portfolio_advisor/README.md)).
 
 ## Project layout
